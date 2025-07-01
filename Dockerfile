@@ -1,30 +1,29 @@
-# Development stage
-FROM node:23 AS development
+# Stage 1: Build
+FROM node:20 AS builder
 
-ENV NODE_ENV=development
 WORKDIR /app
+
 COPY package*.json ./
-COPY prisma ./prisma
-RUN yarn install --frozen-lockfile --ignore-scripts
-RUN yarn global add typescript @types/node ts-node prisma
+COPY prisma ./prisma/
+RUN npm ci
 COPY . .
 RUN npx prisma generate
-RUN yarn build
-RUN ls -la /app/node_modules/.prisma
-# Compile prisma
-RUN npx tsc prisma/seed.ts
+RUN npm run build
 
-# Production stage
-FROM node:22-alpine3.20 AS production
-RUN apk add --no-cache tini
-ENV NODE_ENV=production
+# Stage 2: Production
+FROM node:20
+
 WORKDIR /app
-COPY package*.json ./
-RUN yarn install --production --ignore-scripts --prefer-offline --frozen-lockfile
-COPY --from=development /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=development /app/node_modules/ts-node ./node_modules/ts-node
-COPY --from=development /app/build ./build
-COPY --from=development /app/prisma ./prisma
 
-ENTRYPOINT ["/sbin/tini", "--"]
-CMD ["yarn", "start"]
+COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/prisma ./prisma
+
+ENV NODE_ENV=production
+
+EXPOSE 3000
+
+CMD ["node", "dist/server.js"]
